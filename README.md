@@ -35,7 +35,7 @@ The following data were collected:
 - **(a)** The data are in different scales; monthly data are averaged to calculate quarterly data, particularly for exchange rates and CPI Median.
   
 - **(b)** The output gap is in annual scale. The Cobb-Douglas model is used to model quarterly output gap and potential output with annual data.  
-  Potential Output: \( \bar{Y} = AK^{\alpha}L^{1-\alpha} \)
+  Potential Output:  $\bar{Y} = AK^{\alpha}L^{1-\alpha}$
 
 ## Time-Series Forecasting
 
@@ -74,16 +74,15 @@ The following data were collected:
 ## Taylor's Rule
 
 ### Specification of Taylor's Rule
-The ordinary Taylor's Rule is specified as follows:
-\[ 
-i = r^* + \pi + 0.5(y - y^*) + 0.5(\pi - \pi^*) 
-\]
+The ordinary Taylor's Rule is specified as follows: `i = r* + π + 0.5(y - y*) + 0.5(π - π*)`
+
+
 Where:
-- \( i \) is the nominal interest rate.
-- \( r^* \) is the neutral real interest rate.
-- \( \pi \) is the rate of inflation.
-- \( y - y^* \) is the output gap.
-- \( \pi^* \) is the target inflation rate, which is 2.
+- $i$ is the nominal interest rate.
+- $r^*$ is the neutral real interest rate.
+- $\pi$ is the rate of inflation.
+- $y - y^*$ is the output gap.
+- $\pi^{*}$ is the target inflation rate, which is 2.
 
 ### Result
 ![Taylor's Rule Result](taylor.png)
