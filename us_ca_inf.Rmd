@@ -1,0 +1,62 @@
+---
+title: "CA_US_Inflation"
+author: "Dewei Lin"
+date: "2023-11-05"
+output: pdf_document
+---
+
+```{r}
+library(ggplot2)
+library(readxl)
+library(purrr)
+library(dplyr)
+cpi_data <- read_excel("US_CA_inflation.xls", 
+    sheet = "FRED Graph", skip = 11)
+head(cpi_data)
+```
+```{r}
+# Convert the date column to a Date type if it isn't already
+cpi_data$Time <- as.Date(cpi_data$Time)
+
+# Calculate the monthly inflation rate for Canada
+cpi_data <- cpi_data %>%
+  arrange(Time) 
+
+# Remove the last row as it will have NA for the inflation rate (no next month to compare to)
+cpi_data <- na.omit(cpi_data)
+head(cpi_data)
+```
+
+```{r}
+ggplot(data = cpi_data) +
+  geom_line(aes(x = Time, y = US_CPI, colour = "US"),size = 1.5) +
+  labs(title = "Inflation Rate for US, Monthly Change",
+       x = "Time",
+       y = "Inflation Rate (%)") +
+  scale_color_manual(values = c("Canada" = "#31c1d3", "US" = "#b1242d")) +
+  scale_x_date(limits = c(as.Date("2015-01-01"), as.Date("2023-08-01")),
+               date_breaks = "1 year", date_labels = "%Y") +
+  scale_y_continuous(limits = c(-1,25)) +
+  geom_vline(xintercept = as.numeric(as.Date("2023-08-01")), color = "#0079af") +
+  annotate("text", x = as.Date("2023-05-01"), y = 0, 
+           label = "2023-08-01", vjust = -1, color = "black", size = 4, fontface = "bold") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(data = cpi_data) +
+  geom_line(aes(x = Time, y = Canada_CPI, colour = "Canada"),size = 1.5) +
+  geom_line(aes(x = Time, y = US_CPI, colour = "US"),size = 1.5) +
+  labs(title = "Inflation Rate for Canada and the US, Monthly Change",
+       x = "Time",
+       y = "Inflation Rate (%)") +
+  scale_color_manual(values = c("Canada" = "#31c1d3", "US" = "#b1242d")) +
+  scale_x_date(limits = c(as.Date("2015-01-01"), as.Date("2023-08-01")),
+               date_breaks = "1 year", date_labels = "%Y") +
+  scale_y_continuous(limits = c(-1,25)) +
+  geom_vline(xintercept = as.numeric(as.Date("2023-08-01")), color = "#0079af") +
+  annotate("text", x = as.Date("2023-05-01"), y = 0, 
+           label = "2023-08-01", vjust = -1, color = "black", size = 4, fontface = "bold") +
+  theme_minimal()
+```
+

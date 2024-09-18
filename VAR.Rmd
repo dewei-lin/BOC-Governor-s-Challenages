@@ -1,0 +1,269 @@
+---
+title: "VAR"
+author: "Dewei Lin"
+date: "2023-10-22"
+output: pdf_document
+---
+
+```{r}
+set.seed(1021039)
+library(tseries)
+library(purrr)
+library(dplyr)
+library(gmm)
+library(fredr)
+library(ggplot2)
+library(xts)
+library(ggfortify)
+library(devtools)
+library(forecast)
+library(lubridate)
+#library(bvartools)
+library(readxl)
+library(quantmod)
+library(ggpubr)
+library(urca)
+library(tsDyn)
+library(timetk)
+library(torch)
+fcast_data <- read_excel("Forecasting.xls", 
+    sheet = "fcast")
+x <- fcast_data %>% mutate(
+  og=-(rgdp-pgdp),
+  date = as.Date(date)
+)
+current <- x
+table <- x[c("date","int","inf","rgdp","ue","og","ex")]
+ind <- as.Date(table$date, format="%Y-%m-%d")
+table <- subset(table, select=-c(date))
+Macro_data_can <- xts(x=table, order.by=ind)
+Macro_data <- Macro_data_can
+Macro_data <- na.omit(Macro_data) # balance the panel
+Macro_data <- window(Macro_data, start="1995-01-01") # starting date for data 
+vnames <- names(Macro_data)
+dat <- as.matrix(na.omit(diff(Macro_data)))
+train <- dat[1:103,]
+test <- dat[103:114,]
+head(dat)
+```
+
+
+
+
+
+```{r}
+model <- lineVar(dat, lag=5, model="VAR", I="diff")
+s <- data.frame(predict(model, n.ahead=12))
+cumsum_s <- cumsum(s)
+cumsum_s$rgdp <- cumsum_s$rgdp*3
+cumsum_s$ue <- cumsum_s$ue-1
+cumsum_s$ex <- cumsum_s$ex-0.2
+#+ c(5,3.6,549746,5.5,-2437.876546,1.340667)
+#+ 
+vec <- c(5,3.6,549746,5.5,-2437.876546,1.340667)
+
+# Add the vector to every row of the data frame
+new_df <- as.data.frame(lapply(1:ncol(cumsum_s), function(x) cumsum_s[,x] + vec[x]))
+colnames(new_df) = c("int","inf","rgdp","ue","og","ex")
+date <- seq(as.Date("2023-10-01"), by = "quarter", length.out = 12)
+future <- cbind(date,new_df)
+plot_d <- rbind(current[c("date","int","inf","rgdp","ue","og","ex")],future)
+plot_d$inf[127] <- 1.4
+
+
+```
+
+
+
+
+```{r}
+library(vars)
+irf <- irf(model, impulse = "int", response = "inf", boot =
+1, run =1000)
+data.frame(irf$irf[1])[,2]
+1:11
+irf.plot <- data.frame(t= c(1:11), IRF = data.frame(irf$irf[1])[,2])
+ggplot(irf.plot, aes(x = t, y = IRF)) +
+  geom_line(color = "#31c1d3", size = 1.5) +
+ theme_minimal()
+```
+
+
+## Inflation 
+
+```{r}
+ggplot(plot_d, aes(x = date, y = inf)) +
+  
+  geom_rect(aes(xmin = as.Date("2023-07-01"), 
+                xmax = as.Date("2026-07-01"), 
+                ymin = 1,  # Modified this to allow for potential negative inflation rates
+                ymax = 6),
+            fill = "#D6EAF8", alpha = 0.7, inherit.aes = FALSE) +
+  
+  
+  #geom_rect(aes(xmin = as.Date("2018-07-01"), 
+             #   xmax = as.Date("2026-04-01"), 
+             #   ymin = 1,  # Modified this to allow for potential negative inflation rates
+             #   ymax = 3),
+            #fill = "#f79577", alpha = 0.1, inherit.aes = FALSE) +
+  # Adjusting shaded region
+  
+  
+  geom_line(color = "#31c1d3", size = 1.5) +
+  
+  labs(title = "Inflation Rate (CPI Median) for Canada over Time with VAR(5)", x = "Date", y = "Inflation Rate (%)") +
+  
+  # Setting x-axis range and breaks for every year
+  scale_x_date(limits = c(as.Date("2018-07-01"), as.Date("2026-07-01")),
+               date_breaks = "1 year", date_labels = "%Y") +
+
+  annotate("text", x = as.Date("2025-07-01"), y = 4.5, 
+           label = "Forecast", vjust = -1, color = "#0a70a1", size = 6, fontface = "bold") +
+  annotate("text", x = as.Date("2022-07-01"), y = 1, 
+           label = "Inflation Target", vjust = -1, color = "#b1242d", size = 6, fontface = "bold") +
+  annotate("text", x = as.Date("2023-07-01"), y = 5.5, 
+           label = "Present", vjust = -1, color = "black", size = 4, fontface = "bold") +
+  
+  geom_hline(yintercept = c(1, 3), linetype="dashed", color="#b1242d")+
+  geom_vline(xintercept = as.numeric(as.Date("2023-07-01")), color = "#0079af") +
+  
+  scale_y_continuous(breaks = c(1, 2, 3, 4, 5, 6)) +
+  theme_minimal()
+```
+
+## output gap
+
+```{r}
+ggplot(plot_d, aes(x = date, y = og*100/(rgdp))) +
+  geom_rect(aes(xmin = as.Date("2023-07-01"), 
+                xmax = as.Date("2027-01-01"), 
+                ymin = -Inf,  # Modified this to allow for potential negative inflation rates
+                ymax = Inf),
+            fill = "#D6EAF8", alpha = 1, inherit.aes = FALSE) +
+  geom_line(color = "#31c1d3", size = 1.5) +
+  annotate("text", x = as.Date("2023-07-01"), y = -10, 
+           label = "Present", vjust = -1, color = "black", size = 4, fontface = "bold") +
+  geom_vline(xintercept = as.numeric(as.Date("2023-07-01")), color = "#0079af") +
+  scale_x_date(limits = c(as.Date("2019-07-01"), as.Date("2027-01-01")),
+               date_breaks = "1 year", date_labels = "%Y") +
+  geom_hline(yintercept = 0, linetype="dashed", color="#b1242d")+
+  labs(title = "Output Gap for Canada over Time (Percentage)", x = "Date", y = "Output Gap")+
+  theme_minimal()
+
+```
+
+## gdp growth
+
+```{r}
+plot <- plot_d %>% 
+  arrange(date) %>% 
+  mutate(rgdp_pct_change = (rgdp - lag(rgdp)) / lag(rgdp) * 100) %>%
+  na.omit()
+   
+
+
+# Plotting the data
+ggplot(plot[107:nrow(plot),], aes(x = date, y = rgdp_pct_change)) +
+  scale_x_date(limits = c(as.Date("2021-07-01"), as.Date("2027-04-01")),
+               date_breaks = "1 year", date_labels = "%Y") +
+  
+  geom_rect(aes(xmin = as.Date("2023-07-01"), 
+                xmax = as.Date("2027-04-01"), 
+                ymin = -1.5,  # For shading the specified range
+                ymax = 1),
+            fill = "#D6EAF8", alpha = 1, inherit.aes = FALSE) +
+  
+  geom_col(fill = "#31c1d3", width = 20) +  # Bar chart with a single fill color
+  geom_point() +  # Original data points
+  
+  labs(title = "Quarterly Real GDP Growth",
+       x = "Date",
+       y = "Percentage Change (%)") +
+  scale_y_continuous(limits = c(-1.5,1)) +
+  geom_hline(yintercept = 0, linetype="solid", color="#b1242d") +
+  annotate("text", x = as.Date("2023-07-01"), y = 2, 
+           label = "Present", vjust = -1, color = "black", size = 4, fontface = "bold") +
+  geom_vline(xintercept = as.numeric(as.Date("2023-07-01")), color = "#0079af") +
+
+  theme_minimal()
+```
+
+## unemployment rate 
+
+```{r}
+ggplot(plot_d, aes(x = date, y = ue)) +
+  geom_rect(aes(xmin = as.Date("2023-07-01"), 
+                xmax = as.Date("2027-01-01"), 
+                ymin = -Inf,  # Modified this to allow for potential negative inflation rates
+                ymax = Inf),
+            fill = "#D6EAF8", alpha = 1, inherit.aes = FALSE) +
+  geom_line(color = "#31c1d3", size = 1.5) +
+  annotate("text", x = as.Date("2023-07-01"), y = 4, 
+           label = "Present", vjust = -1, color = "black", size = 4, fontface = "bold") +
+  geom_vline(xintercept = as.numeric(as.Date("2023-07-01")), color = "#0079af") +
+  scale_x_date(limits = c(as.Date("2019-07-01"), as.Date("2027-01-01")),
+               date_breaks = "1 year", date_labels = "%Y") +
+  geom_hline(yintercept = 5.5, linetype="dashed", color="#b1242d")+
+  annotate("text", x = as.Date("2021-01-01"), y = 5.5, 
+           label = "5.5%", vjust = -1, color = "#b1242d", size = 4, fontface = "bold") +
+  scale_y_continuous(limits = c(4,14), breaks=c(4,5,6,7,8,9,10,11,12,13,14)) +
+  labs(title = "Unemployment Rate for Canada over Time (Percentage)", x = "Date", y = "Unemployment Rate")+
+  theme_minimal()
+
+```
+
+```{r}
+ggplot(plot_d, aes(x = date, y = ex)) +
+  geom_rect(aes(xmin = as.Date("2023-07-01"), 
+                xmax = as.Date("2027-01-01"), 
+                ymin = -Inf,  # Modified this to allow for potential negative inflation rates
+                ymax = Inf),
+            fill = "#D6EAF8", alpha = 1, inherit.aes = FALSE) +
+  geom_line(color = "#31c1d3", size = 1.5) +
+  annotate("text", x = as.Date("2023-07-01"), y = 1.6, 
+           label = "Present", vjust = -1, color = "black", size = 4, fontface = "bold") +
+  geom_vline(xintercept = as.numeric(as.Date("2023-07-01")), color = "#0079af") +
+  scale_x_date(limits = c(as.Date("2019-07-01"), as.Date("2027-01-01")),
+               date_breaks = "1 year", date_labels = "%Y") +
+  scale_y_continuous(limits = c(1,1.75)) +
+  labs(title = "Canadian Dollars to U.S. Dollar Spot Exchange Rate (Percentage)", x = "Date", y = "Exchange Rate")+
+  theme_minimal()
+```
+
+
+
+
+
+
+
+## back test
+
+```{r}
+model <- lineVar(dat[1:50,], lag=5, model="VAR", I="diff")
+#predict(bvar.back)<-predict(bvar.back,horizon=20)
+#quants.back <- predict(bvar)$quants[2,,]
+#temp.inf <- quants.back[,2]
+s <- data.frame(predict(model, n.ahead=30))
+inf.d <- s$inf 
+var.pred <- cumsum(inf.d)+dat[51,2]
+var.pred
+data.frame(inf.d+0.2)
+```
+
+```{r}
+real <- dat[51:80,2]
+pt <- data.frame(real=as.numeric(real),back=data.frame(inf.d+0.2))
+write.xlsx(pt, file= "1.xlsx")
+real
+```
+
+```{r}
+model <- lineVar(dat[1:50,], lag=5, model="VAR", I="diff")
+s <- data.frame(predict(model, n.ahead=30))
+s
+```
+
+```{r}
+dat[51:80,]
+```
+

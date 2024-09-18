@@ -1,0 +1,192 @@
+---
+title: "Taylor_Projection"
+author: "Dewei Lin"
+date: "2023-10-03"
+output: pdf_document
+---
+
+```{r}
+library(readr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(tseries)
+library(openxlsx)
+library(BVAR)
+set.seed(1021039)
+library(tseries)
+library(purrr)
+library(dplyr)
+library(gmm)
+library(fredr)
+library(ggplot2)
+library(xts)
+library(vars)
+library(svars)
+library(ggfortify)
+library(devtools)
+Taylor_Rule_Data <- read_excel("Taylor_Rule_Data.xls", 
+    sheet = "Taylor_Rule_Data")
+head(Taylor_Rule_Data)
+```
+
+
+
+```{r}
+dat <- Taylor_Rule_Data %>% mutate(
+    og = rgdp - pgdp,
+    date = as.Date(date),
+    int_lag1 = dplyr::lag(int, 1),
+    inf_lead1 = dplyr::lead(inf, 1),
+    inf_lead2 = dplyr::lead(inf, 2),
+    across(.cols = c(int, inf, og), 
+           .fns = ~ dplyr::lag(.x, 1), 
+           .names = "{.col}_lag1"),
+    across(.cols = c(int, inf, og), 
+           .fns = ~ dplyr::lag(.x, 2), 
+           .names = "{.col}_lag2"),
+    across(.cols = c(int, inf, og), 
+           .fns = ~ dplyr::lag(.x, 3), 
+           .names = "{.col}_lag3"),
+    # pi + r + 0.5(pi-2) + 0.5og
+    simple.taylor = -1+ int +0.5*(inf - inf_lag1)/inf_lag1 + 0.5*(log(rgdp)-log(pgdp)),
+    ToTEM.taylor = 0.95*int_lag1 + 0.05*(4.75+20*((inf_lead2 - inf_lead1)/inf_lead1)-(inf - inf_lag1)/inf_lag1+0.35*(log(rgdp)-log(pgdp)))
+  ) %>%
+  tidyr::drop_na()
+
+
+instruments <- subset_dat <- dat[, c( "inf", "inf_lag1" ,
+                                     "og_lag1", 
+                                      "int_lag2", "inf_lag2",
+                                     "og_lag2", 
+                                     "int_lag3", "inf_lag3","og_lag3")]
+
+
+# Fit a GMM model
+
+mod <- gmm(
+  g = int ~ inf_lead1 + og + int_lag1,
+  data = dat,
+  x = instruments,
+  type = "iterative"
+)
+
+mod.coef <- as.matrix(coef(mod))
+dat.pred <- as.matrix(cbind(dat[c("inf_lead1","og","int_lag1")]))
+ones_column <- matrix(1, nrow = nrow(dat.pred), ncol = 1)
+design.matrix <- cbind(ones_column, dat.pred)
+result <- design.matrix %*% mod.coef
+taylor.rule.comp <- cbind(dat$date,dat$int,as.data.frame(result),dat$ToTEM.taylor) %>% setNames(c("date","Interest_Rate","Taylor_Rule_Rate","ToTEM.taylor"))
+taylor.projection <- ggplot(taylor.rule.comp, aes(x = date)) +
+  geom_line(aes(y = Interest_Rate, color = "Interest_Rate")) +
+  geom_line(aes(y = Taylor_Rule_Rate, color = "Taylor_Rule_Rate")) +
+  geom_line(aes(y = ToTEM.taylor, color = "ToTEM.taylor")) +
+  labs(title = "Interest Rate vs. Taylor's Rule Projection Over Time For Canada",
+       x = "Date",
+       y = "Rate") +
+  scale_color_manual(values = c("Interest_Rate" = "blue", "Taylor_Rule_Rate" = "red",
+                                "ToTEM.taylor"="green")) +
+  coord_cartesian(xlim = as.Date(c("2019-01-01", "2023-04-01")))+
+  theme_minimal() 
+#+coord_cartesian(xlim = as.Date(c("2019-01-01", "2023-04-01")))
+#ggsave(filename = "taylor.projection.png", plot = taylor.projection, width = 20, height = 5, dpi = 300)
+taylor.projection
+```
+
+
+
+## Forecasting Taylor Rule
+
+```{r}
+future <- read_excel("taylor_future.xlsx")
+dat <- plot_d %>% mutate(
+    date = as.Date(date),
+    int_lag1 = dplyr::lag(int, 1),
+    inf_lead1 = dplyr::lead(inf, 1),
+    inf_lead2 = dplyr::lead(inf, 2),
+    across(.cols = c(int, inf, og), 
+           .fns = ~ dplyr::lag(.x, 1), 
+           .names = "{.col}_lag1"),
+    across(.cols = c(int, inf, og), 
+           .fns = ~ dplyr::lag(.x, 2), 
+           .names = "{.col}_lag2"),
+    across(.cols = c(int, inf, og), 
+           .fns = ~ dplyr::lag(.x, 3), 
+           .names = "{.col}_lag3"),
+    ToTEM.taylor = 0.95*int_lag1 + 0.05*(4.75+20*((inf_lead2 - inf_lead1)/inf_lead1)-(inf - inf_lag1)/inf_lag1+0.35*(log(rgdp)-log(rgdp-og)))
+  ) %>%
+  tidyr::drop_na()
+
+
+instruments <- subset_dat <- dat[, c( "inf", "inf_lag1" ,
+                                     "og_lag1", 
+                                      "int_lag2", "inf_lag2",
+                                     "og_lag2", 
+                                     "int_lag3", "inf_lag3","og_lag3")]
+
+
+# Fit a GMM model
+
+mod <- gmm(
+  g = int ~ inf_lead1 + og + int_lag1,
+  data = dat,
+  x = instruments,
+  type = "iterative"
+)
+
+mod.coef <- as.matrix(coef(mod))
+dat.pred <- as.matrix(cbind(dat[c("inf_lead1","og","int_lag1")]))
+ones_column <- matrix(1, nrow = nrow(dat.pred), ncol = 1)
+design.matrix <- cbind(ones_column, dat.pred)
+result <- design.matrix %*% mod.coef
+taylor.rule.comp <- cbind(dat$date,dat$int,as.data.frame(result),dat$ToTEM.taylor) %>% setNames(c("date","Interest_Rate","Taylor_Rule_Rate","ToTEM.taylor"))
+
+```
+
+
+
+```{r}
+taylor.projection <- ggplot(taylor.rule.comp, aes(x = date)) +
+  geom_line(aes(y = Interest_Rate, color = "Interest_Rate")) +
+  geom_line(aes(y = Taylor_Rule_Rate+1.5, color = "Taylor_Rule_Rate")) +
+  geom_line(aes(y = ToTEM.taylor+1.5, color = "ToTEM.taylor")) +
+  labs(title = "Interest Rate vs. Taylor's Rule Projection Over Time For Canada",
+       x = "Date",
+       y = "Rate") +
+  scale_color_manual(values = c("Interest_Rate" = "blue", "Taylor_Rule_Rate" = "red",
+                                "ToTEM.taylor"="green")) +
+  coord_cartesian(xlim = c(as.Date("2022-01-01"), as.Date("2023-10-01")))+
+  theme_minimal() 
+#+
+#ggsave(filename = "taylor.projection.png", plot = taylor.projection, width = 20, height = 5, dpi = 300)
+taylor.projection
+```
+
+
+```{r}
+plot_d
+```
+```{r}
+taylor <- plot_d[1:115,] %>% mutate(
+  Interest_Rate = int,
+  Taylor_Rule_Rate = inf + 0.5*(inf-2) + 0.5*og/(rgdp)
+)
+taylor.plot <- ggplot(taylor, aes(x = date)) +
+  geom_line(aes(y = Interest_Rate, color = "Interest_Rate"),size = 1.5) +
+  geom_line(aes(y = Taylor_Rule_Rate, color = "Taylor_Rule_Rate"),size = 1.5) +
+  labs(title = "Interest Rate vs. Taylor's Rule Projection",
+       x = "Date",
+       y = "Rate") +
+  scale_color_manual(values = c("Interest_Rate" = "#0a70a1", "Taylor_Rule_Rate" = "#b1242d")) +
+  coord_cartesian(xlim = c(as.Date("2021-07-01"), as.Date("2023-07-01")), ylim = c(0,7)) +
+  geom_vline(xintercept = as.numeric(as.Date("2023-07-01")), color = "#0079af") +
+  scale_y_continuous(breaks = c(0,1, 2, 3, 4, 5, 6,7)) +
+  annotate("text", x = as.Date("2023-06-01"), y = 6, 
+           label = "Present", vjust = -1, color = "black", size = 4, fontface = "bold") +
+  theme_minimal()
+  #+theme(plot.margin = unit(c(3.1, 0.1, 3.1, 0.1), "cm"))
+#ggsave("taylor.plot.png", width = 30, height = 15)
+taylor.plot
+```
+

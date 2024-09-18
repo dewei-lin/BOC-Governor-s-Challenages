@@ -1,0 +1,215 @@
+---
+title: "Economics Projection"
+author: "Dewei Lin"
+date: "2023-10-03"
+output: pdf_document
+---
+
+```{r}
+library(BVAR)
+set.seed(1021039)
+library(tseries)
+library(purrr)
+library(dplyr)
+library(gmm)
+library(fredr)
+library(ggplot2)
+library(xts)
+library(vars)
+library(ggfortify)
+library(devtools)
+library(forecast)
+library(lubridate)
+#library(bvartools)
+library(readxl)
+fcast_data <- read_excel("Forecasting.xls", 
+    sheet = "fcast")
+```
+## Unit Root Test
+
+```{r}
+x <- fcast_data %>% mutate(
+  og=-(rgdp-pgdp)
+)
+mts_data <- ts(x[, -1], start=c(1995, 1), frequency=4)
+#interest rate
+int <- x$int
+#inflation rate
+inf <- x$inf
+#real gdp
+rgdp <- x$rgdp
+#output gap
+og <- x$og
+log.int <- log(int)
+log.inf <- log(inf)
+log.rgdp <- log(rgdp)
+results <- lapply(colnames(mts_data), function(col) {
+  series <- mts_data[, col]
+  test_result <- adf.test(series, alternative = "stationary")
+  return(test_result)
+})
+#adf.test(diff(inf), alternative = "stationary")
+#adf.test(diff(log.int), alternative = "stationary")
+#
+#adf.test(diff(log.rgdp), alternative = "stationary")
+#adf.test(og,"stationary")
+#adf.test(diff(int),"stationary")
+```
+## Data Visulization
+
+```{r}
+autoplot(mts_data, facet = TRUE) + theme_bw()
+```
+
+
+## BVAR
+
+
+
+
+### create ts object and check stationarity
+
+```{r}
+df <- x %>%
+  mutate(
+    log_rgdp = log(rgdp/10000),
+    int_lag = lag(int, 1),
+    inf_lag = lag(inf, 1),
+    log_rgdp_lag = lag(log_rgdp, 1)
+  ) %>%
+  mutate(
+    int.d = int - int_lag,
+    inf.d = inf - inf_lag,
+    rgdp.d = log_rgdp - log_rgdp_lag
+  )
+
+ts <- df[c("date","int.d","inf.d","rgdp.d","og")] %>% na.omit()
+mts <- ts(ts[, -1], start=c(1995, 1), frequency=4)
+#mts
+results <- lapply(colnames(mts), function(col) {
+  series <- mts[, col]
+  test_result <- adf.test(series, alternative = "stationary")
+  return(test_result)
+})
+#head(mts)
+current <-x[c("date","int","inf","rgdp","og")]
+#ts
+
+```
+
+
+
+
+## specify prior
+
+```{r}
+mn <- bv_minnesota(
+   lambda = bv_lambda(mode = 0.2, sd = 0.4, min = 0.0001, max = 5),
+   alpha = bv_alpha(mode = 2), var = 1e07)
+soc <- bv_soc(mode = 1, sd = 1, min = 1e-04, max = 50)
+sur <- bv_sur(mode = 1, sd = 1, min = 1e-04, max = 50)
+priors <- bv_priors(hyper = "auto", mn = mn, soc = soc, sur = sur)
+mh <- bv_metropolis(scale_hess = c(0.05, 0.0001, 0.0001),
+            adjust_acc = TRUE, acc_lower = 0.25, acc_upper = 0.45)
+
+```
+
+
+## calc AIC for each lag value
+
+```{r eval=FALSE, include=FALSE}
+# Create a function to calculate AIC for a given lag value
+calculate_AIC <- function(lag_value) {
+  # Create a model with the specified lag value
+  model <- bvar(mts, lags = lag_value, n_draw = 15000, n_burn = 5000, n_thin = 15,
+                 priors = priors, mh = mh, by_fcast =10,
+                verbose = TRUE)
+  
+  # Calculate the AIC for the model
+  aic <- AIC(model)
+  
+  # Return a data frame with lag value and AIC
+  data.frame(Lag = lag_value, AIC = aic)
+}
+
+# Create a sequence of lag values from 1 to 10
+lag_values <- 1:5
+
+# Use map to calculate AIC for each lag value
+results <- map_df(lag_values, calculate_AIC)
+
+# Print the resulting data frame
+AIC_results <- results %>% arrange(AIC)
+# BVAR(1) has min AIC
+AIC_results
+```
+
+```{r}
+library(BVAR)
+x <- bvar(mts, lags = 2, n_draw = 15000, n_burn = 5000, n_thin = 15,
+                 priors = priors, mh = mh, by_fcast =12,
+                 verbose = TRUE)
+#predict(x)<-predict(x,horizon=12) 
+irf(x)<-irf(x,horizon=12,fevd=FALSE)  
+#plot(predict(x)) 
+#plot(irf(x))
+quants <- predict(x)$quants
+quant_50_values <- quants[2,,]
+forecast_dates <- seq(as.Date("2023-10-01"), by = "quarter", length.out = 12)
+df_50_quant <- as.data.frame(quant_50_values)
+df_50_quant$date <- forecast_dates
+forecast_df <- df_50_quant %>% mutate(
+  date = forecast_dates,
+  int.d = V1,
+  inf.d = V2,
+  rgdp.d = V3,
+  og = V4
+) 
+temp <- forecast_df[c("date","int.d","inf.d","rgdp.d","og")]
+#temp$int.d
+#temp$rgdp.d
+```
+
+## putting back values
+
+```{r}
+#interest rate
+int.d <-temp$int.d
+int.d.t <- cumsum(int.d)+5
+int.forecast = data.frame(int=int.d.t)
+#inflation rate
+inf.d <- temp$inf.d-0.1
+inf.d.t <- cumsum(inf.d)+3.6
+inf.forecast = data.frame(inf=inf.d.t)
+#real gdp
+rgdp.d <- temp$rgdp.d
+rgdp.d.t <- cumsum(rgdp.d)+log(118.537)
+rgdp.forecast = data.frame(rgdp=exp(rgdp.d.t))
+#og
+og = data.frame(og=forecast_df$og)
+date <- forecast_dates
+forecast = cbind(date,int.forecast,inf.forecast,rgdp.forecast,og)
+#forecast
+#current
+plot_d <- rbind(current,forecast)
+plot_d$date <- as.Date(plot_d$date)
+#from 1981-04-01 to 2026-04-01
+#plot_d
+#library(openxlsx)
+#write.xlsx(plot_d, "plot_d.xlsx")
+#plot(irf(x))
+plot_d
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

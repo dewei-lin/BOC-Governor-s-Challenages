@@ -1,0 +1,512 @@
+test_result <- adf.test(series, alternative = "stationary")
+return(test_result)
+})
+# Print results
+#results
+#og is stationary
+#adf.test(diff(log.int), alternative = "stationary")
+#adf.test(diff(log.inf), alternative = "stationary")
+#adf.test(diff(log.rgdp), alternative = "stationary")
+library("ggplot2")
+library("ggfortify")
+autoplot(mts_data, facet = TRUE) + theme_bw()
+df <- x %>%
+mutate(
+log_int = log(int),
+log_inf = log(inf),
+log_rgdp = log(rgdp),
+log_int_lag = lag(log_int, 1),
+log_inf_lag = lag(log_inf, 1),
+log_rgdp_lag = lag(log_rgdp, 1)
+) %>%
+mutate(
+int.d = log_int - log_int_lag,
+inf.d = log_inf - log_inf_lag,
+rgdp.d = log_rgdp - log_rgdp_lag
+)
+ts <- df[c("date","int.d","inf.d","rgdp.d","og")] %>% na.omit()
+mts <- ts(ts[, -1], start=c(1981, 2), frequency=4)
+#mts
+results <- lapply(colnames(mts), function(col) {
+series <- mts[, col]
+test_result <- adf.test(series, alternative = "stationary")
+return(test_result)
+})
+#head(mts)
+current <-x[c("date","int","inf","rgdp","og")]
+#ts
+mn <- bv_minnesota(
+lambda = bv_lambda(mode = 0.2, sd = 0.4, min = 0.0001, max = 5),
+alpha = bv_alpha(mode = 2), var = 1e07)
+soc <- bv_soc(mode = 1, sd = 1, min = 1e-04, max = 50)
+sur <- bv_sur(mode = 1, sd = 1, min = 1e-04, max = 50)
+priors <- bv_priors(hyper = "auto", mn = mn, soc = soc, sur = sur)
+mh <- bv_metropolis(scale_hess = c(0.05, 0.0001, 0.0001),
+adjust_acc = TRUE, acc_lower = 0.25, acc_upper = 0.45)
+library(BVAR)
+x <- bvar(mts, lags = 1, n_draw = 15000, n_burn = 5000, n_thin = 15,
+priors = priors, mh = mh, by_fcast =10,
+verbose = TRUE)
+#predict(x)<-predict(x,horizon=12)
+irf(x)<-irf(x,horizon=12,fevd=FALSE)
+#plot(predict(x))
+#plot(irf(x))
+quants <- predict(x)$quants
+quant_50_values <- quants[3,,]
+forecast_dates <- seq(as.Date("2023-07-01"), by = "quarter", length.out = 12)
+df_50_quant <- as.data.frame(quant_50_values)
+df_50_quant$date <- forecast_dates
+forecast_df <- df_50_quant %>% mutate(
+date = forecast_dates,
+int.d = V1,
+inf.d = V2,
+rgdp.d = V3,
+og = V4
+)
+temp <- forecast_df[c("date","int.d","inf.d","rgdp.d","og")]
+int.d <-temp$int.d
+#int.t/int.t-1
+int.lag <- exp(int.d)
+#int.lag
+#int.1/int.0, int.2/int.1, int.3/int.2
+cumulative_product <- cumprod(int.lag)
+int.forecast = data.frame(int=cumulative_product*5.00)
+inf.d <- temp$inf.d
+inf.lag <- exp(inf.d)
+cumulative_product <- cumprod(inf.lag)
+inf.forecast = data.frame(inf=cumulative_product*124.40115)
+rgdp.d <- temp$rgdp.d
+rgdp.lag <- exp(rgdp.d)
+cumulative_product <- cumprod(rgdp.lag)
+rgdp.forecast = data.frame(rgdp=cumulative_product*118.537)
+og = data.frame(og=forecast_df$og)
+date <- forecast_dates
+forecast = cbind(date,int.forecast,inf.forecast,rgdp.forecast,og)
+#forecast
+#current
+plot_d <- rbind(current,forecast)
+plot_d$date <- as.Date(plot_d$date)
+#from 1981-04-01 to 2026-04-01
+cpi.plot <- ggplot(plot_d, aes(x = date, y = inf)) +
+# Adjusting shaded region
+geom_rect(aes(xmin = as.Date("2023-07-01"),
+xmax = as.Date("2026-04-01"),
+ymin = 90,
+ymax = Inf),
+fill = "#c1dae6", alpha = 0.4, inherit.aes = FALSE) +
+geom_line(color = "#31c1d3", size = 1.5) +
+labs(title = "CPI for Canada over Time", x = "Date", y = "Consumer Price Index") +
+# Setting x-axis range and breaks for every year
+scale_x_date(limits = c(as.Date("2018-07-01"), as.Date("2026-04-01")),
+date_breaks = "1 year", date_labels = "%Y") +
+# Adjusting y-axis
+scale_y_continuous(limits = c(90, max(plot_d$inf)), breaks = seq(90, max(plot_d$inf), by = 10)) +
+# Adding 'forecast' text with larger, bolder label, and placing it just above the ymin of the rectangle
+annotate("text", x = as.Date("2024-07-01"), y = 82,
+label = "Forecast", vjust = -1, color = "#0a70a1", size = 6, fontface = "bold") +
+theme_minimal()
+#ggsave(filename = "cpi_plot.png", plot = cpi.plot, width = 10, height = 6, dpi = 300)
+cpi.plot
+# Calculate the inflation rate
+plot_d_inf <- plot_d %>%
+arrange(date) %>%
+mutate(inflation_rate = (inf - lag(inf)) / lag(inf) * 100)  # The formula given multiplied by 100 to get percentage
+# Plotting the inflation rate
+inflation.plot <- ggplot(plot_d_inf, aes(x = date, y = inflation_rate)) +
+geom_rect(aes(xmin = as.Date("2023-07-01"),
+xmax = as.Date("2026-04-01"),
+ymin = -Inf,  # Modified this to allow for potential negative inflation rates
+ymax = Inf),
+fill = "#c1dae6", alpha = 0.4, inherit.aes = FALSE) +
+geom_rect(aes(xmin = as.Date("2018-07-01"),
+xmax = as.Date("2026-04-01"),
+ymin = 1,  # Modified this to allow for potential negative inflation rates
+ymax = 3),
+fill = "#f79577", alpha = 0.03, inherit.aes = FALSE) +
+# Adjusting shaded region
+geom_line(color = "#31c1d3", size = 1.5) +
+labs(title = "Inflation Rate for Canada over Time", x = "Date", y = "Inflation Rate (%)") +
+# Setting x-axis range and breaks for every year
+scale_x_date(limits = c(as.Date("2018-07-01"), as.Date("2026-04-01")),
+date_breaks = "1 year", date_labels = "%Y") +
+# Adjusting y-axis. We're using a more dynamic range here based on the calculated inflation rates.
+scale_y_continuous(limits = c(min(plot_d_inf$inflation_rate, na.rm = TRUE), max(plot_d_inf$inflation_rate, na.rm = TRUE)), breaks = seq(min(plot_d_inf$inflation_rate, na.rm = TRUE), max(plot_d_inf$inflation_rate, na.rm = TRUE), by = 2)) +
+# Adding 'forecast' text with larger, bolder label, and placing it just above the ymin of the rectangle
+annotate("text", x = as.Date("2020-04-01"), y = 2,  # Adjusted this based on the inflation rate range
+label = "Inflation Target", vjust = -1, color = "#ed1d24", size = 6, fontface = "bold") +
+annotate("text", x = as.Date("2024-07-01"), y = 0,  # Adjusted this based on the inflation rate range
+label = "Forecast", vjust = -1, color = "#0a70a1", size = 6, fontface = "bold") +
+theme_minimal()
+inflation.plot
+#ggsave(filename = "cpi_plot.png", plot = inflation.plot, width = 10, height = 6, dpi = 300)
+View(plot_d_inf)
+#from 1981-04-01 to 2026-04-01
+forecast
+current
+plot_d
+# Create a function to calculate AIC for a given lag value
+calculate_AIC <- function(lag_value) {
+# Create a model with the specified lag value
+model <- bvar(mts, lags = lag_value, n_draw = 15000, n_burn = 5000, n_thin = 15,
+priors = priors, mh = mh, by_fcast =10,
+verbose = TRUE)
+# Calculate the AIC for the model
+aic <- AIC(model)
+# Return a data frame with lag value and AIC
+data.frame(Lag = lag_value, AIC = aic)
+}
+# Create a sequence of lag values from 1 to 10
+lag_values <- 1:5
+# Use map to calculate AIC for each lag value
+results <- map_df(lag_values, calculate_AIC)
+# Print the resulting data frame
+AIC_results <- results %>% arrange(AIC)
+# BVAR(1) has min AIC
+AIC_results
+View(x)
+x <- Taylor_Rule_Data[1:169,] %>% mutate(
+og=rgdp-pgdp
+)
+cpi.plot <- ggplot(plot_d, aes(x = date, y = inf)) +
+# Adjusting shaded region
+geom_rect(aes(xmin = as.Date("2023-07-01"),
+xmax = as.Date("2026-04-01"),
+ymin = 90,
+ymax = Inf),
+fill = "#c1dae6", alpha = 0.4, inherit.aes = FALSE) +
+geom_line(color = "#31c1d3", size = 1.5) +
+labs(title = "CPI for Canada over Time", x = "Date", y = "Consumer Price Index") +
+# Setting x-axis range and breaks for every year
+scale_x_date(limits = c(as.Date("2018-07-01"), as.Date("2026-04-01")),
+date_breaks = "1 year", date_labels = "%Y") +
+# Adjusting y-axis
+scale_y_continuous(limits = c(100, max(plot_d$inf)), breaks = seq(100, max(plot_d$inf), by = 10)) +
+# Adding 'forecast' text with larger, bolder label, and placing it just above the ymin of the rectangle
+annotate("text", x = as.Date("2024-07-01"), y = 82,
+label = "Forecast", vjust = -1, color = "#0a70a1", size = 6, fontface = "bold") +
+theme_minimal()
+#ggsave(filename = "cpi_plot.png", plot = cpi.plot, width = 10, height = 6, dpi = 300)
+cpi.plot
+cpi.plot <- ggplot(plot_d, aes(x = date, y = inf)) +
+# Adjusting shaded region
+geom_rect(aes(xmin = as.Date("2023-07-01"),
+xmax = as.Date("2026-04-01"),
+ymin = 90,
+ymax = Inf),
+fill = "#c1dae6", alpha = 0.4, inherit.aes = FALSE) +
+geom_line(color = "#31c1d3", size = 1.5) +
+labs(title = "CPI for Canada over Time", x = "Date", y = "Consumer Price Index") +
+# Setting x-axis range and breaks for every year
+scale_x_date(limits = c(as.Date("2018-07-01"), as.Date("2026-04-01")),
+date_breaks = "1 year", date_labels = "%Y") +
+# Adjusting y-axis
+scale_y_continuous(limits = c(100, max(plot_d$inf)), breaks = seq(100, max(plot_d$inf), by = 10)) +
+# Adding 'forecast' text with larger, bolder label, and placing it just above the ymin of the rectangle
+annotate("text", x = as.Date("2024-07-01"), y = 82,
+label = "Forecast", vjust = -1, color = "#0a70a1", size = 6, fontface = "bold") +
+theme_minimal()
+#ggsave(filename = "cpi_plot.png", plot = cpi.plot, width = 10, height = 6, dpi = 300)
+cpi.plot
+#from 1981-04-01 to 2026-04-01
+forecast
+library(BVAR)
+x <- bvar(mts, lags = 1, n_draw = 15000, n_burn = 5000, n_thin = 15,
+priors = priors, mh = mh, by_fcast =10,
+verbose = TRUE)
+#predict(x)<-predict(x,horizon=12)
+irf(x)<-irf(x,horizon=12,fevd=FALSE)
+#plot(predict(x))
+#plot(irf(x))
+quants <- predict(x)$quants
+quant_50_values <- quants[3,,]
+forecast_dates <- seq(as.Date("2023-07-01"), by = "quarter", length.out = 12)
+df_50_quant <- as.data.frame(quant_50_values)
+df_50_quant$date <- forecast_dates
+forecast_df <- df_50_quant %>% mutate(
+date = forecast_dates,
+int.d = V1,
+inf.d = V2,
+rgdp.d = V3,
+og = V4
+)
+temp <- forecast_df[c("date","int.d","inf.d","rgdp.d","og")]
+int.d <-temp$int.d
+#int.t/int.t-1
+int.lag <- exp(int.d)
+#int.lag
+#int.1/int.0, int.2/int.1, int.3/int.2
+cumulative_product <- cumprod(int.lag)
+int.forecast = data.frame(int=cumulative_product*5.00)
+inf.d <- temp$inf.d
+inf.lag <- exp(inf.d)
+cumulative_product <- cumprod(inf.lag)
+inf.forecast = data.frame(inf=cumulative_product*154.56667)
+rgdp.d <- temp$rgdp.d
+rgdp.lag <- exp(rgdp.d)
+cumulative_product <- cumprod(rgdp.lag)
+rgdp.forecast = data.frame(rgdp=cumulative_product*118.537)
+og = data.frame(og=forecast_df$og)
+date <- forecast_dates
+forecast = cbind(date,int.forecast,inf.forecast,rgdp.forecast,og)
+#forecast
+#current
+plot_d <- rbind(current,forecast)
+plot_d$date <- as.Date(plot_d$date)
+#from 1981-04-01 to 2026-04-01
+cpi.plot <- ggplot(plot_d, aes(x = date, y = inf)) +
+# Adjusting shaded region
+geom_rect(aes(xmin = as.Date("2023-07-01"),
+xmax = as.Date("2026-04-01"),
+ymin = 90,
+ymax = Inf),
+fill = "#c1dae6", alpha = 0.4, inherit.aes = FALSE) +
+geom_line(color = "#31c1d3", size = 1.5) +
+labs(title = "CPI for Canada over Time", x = "Date", y = "Consumer Price Index") +
+# Setting x-axis range and breaks for every year
+scale_x_date(limits = c(as.Date("2018-07-01"), as.Date("2026-04-01")),
+date_breaks = "1 year", date_labels = "%Y") +
+# Adjusting y-axis
+scale_y_continuous(limits = c(100, max(plot_d$inf)), breaks = seq(100, max(plot_d$inf), by = 10)) +
+# Adding 'forecast' text with larger, bolder label, and placing it just above the ymin of the rectangle
+annotate("text", x = as.Date("2024-07-01"), y = 82,
+label = "Forecast", vjust = -1, color = "#0a70a1", size = 6, fontface = "bold") +
+theme_minimal()
+#ggsave(filename = "cpi_plot.png", plot = cpi.plot, width = 10, height = 6, dpi = 300)
+cpi.plot
+# Calculate the inflation rate
+plot_d_inf <- plot_d %>%
+arrange(date) %>%
+mutate(inflation_rate = (inf - lag(inf)) / lag(inf) * 100)  # The formula given multiplied by 100 to get percentage
+# Plotting the inflation rate
+inflation.plot <- ggplot(plot_d_inf, aes(x = date, y = inflation_rate)) +
+geom_rect(aes(xmin = as.Date("2023-07-01"),
+xmax = as.Date("2026-04-01"),
+ymin = -Inf,  # Modified this to allow for potential negative inflation rates
+ymax = Inf),
+fill = "#c1dae6", alpha = 0.4, inherit.aes = FALSE) +
+geom_rect(aes(xmin = as.Date("2018-07-01"),
+xmax = as.Date("2026-04-01"),
+ymin = 1,  # Modified this to allow for potential negative inflation rates
+ymax = 3),
+fill = "#f79577", alpha = 0.03, inherit.aes = FALSE) +
+# Adjusting shaded region
+geom_line(color = "#31c1d3", size = 1.5) +
+labs(title = "Inflation Rate for Canada over Time", x = "Date", y = "Inflation Rate (%)") +
+# Setting x-axis range and breaks for every year
+scale_x_date(limits = c(as.Date("2018-07-01"), as.Date("2026-04-01")),
+date_breaks = "1 year", date_labels = "%Y") +
+# Adjusting y-axis. We're using a more dynamic range here based on the calculated inflation rates.
+scale_y_continuous(limits = c(min(plot_d_inf$inflation_rate, na.rm = TRUE), max(plot_d_inf$inflation_rate, na.rm = TRUE)), breaks = seq(min(plot_d_inf$inflation_rate, na.rm = TRUE), max(plot_d_inf$inflation_rate, na.rm = TRUE), by = 2)) +
+# Adding 'forecast' text with larger, bolder label, and placing it just above the ymin of the rectangle
+annotate("text", x = as.Date("2020-04-01"), y = 2,  # Adjusted this based on the inflation rate range
+label = "Inflation Target", vjust = -1, color = "#ed1d24", size = 6, fontface = "bold") +
+annotate("text", x = as.Date("2024-07-01"), y = 0,  # Adjusted this based on the inflation rate range
+label = "Forecast", vjust = -1, color = "#0a70a1", size = 6, fontface = "bold") +
+theme_minimal()
+inflation.plot
+#ggsave(filename = "cpi_plot.png", plot = inflation.plot, width = 10, height = 6, dpi = 300)
+View(plot_d_inf)
+library(readxl)
+library(survival)
+library(survminer)
+library(epiR)
+library(purrr)
+library(dplyr)
+library(flexsurv)
+library(ggplot2)
+library(tidyr)
+library(mice)
+library(scales)
+sur.data <- read_excel("~/Desktop/STAD92/D92 Final Project/STAD92_S2023_Project_Data.xlsx")
+sur.data <- sur.data %>%
+mutate(event = ifelse(vstatus == "Dead", 1, 0)) %>% mutate(t_stage = factor(t_stage))
+head(sur.data)
+nrow(sur.data)
+library(readxl)
+library(survival)
+library(survminer)
+library(epiR)
+library(purrr)
+library(dplyr)
+library(flexsurv)
+library(ggplot2)
+library(tidyr)
+library(mice)
+library(scales)
+sur.data <- read_excel("~/Desktop/STAD92/D92 Final Project/STAD92_S2023_Project_Data.xlsx")
+sur.data <- sur.data %>%
+mutate(event = ifelse(vstatus == "Dead", 1, 0)) %>% mutate(t_stage = factor(t_stage))
+head(sur.data)
+nrow(sur.data)
+missing_prop <- data.frame(Missing_Proportion=percent(colSums(is.na(sur.data))/nrow(sur.data)),
+Missing_Cases=colSums(is.na(sur.data)))
+missing_prop
+plot1 <- ggplot(sur.data, aes(x = t_stage)) +
+geom_bar(fill = "dodgerblue", color = "black") +
+xlab("Tumour Stage: I~V") +
+ylab("Count") +
+ggtitle("Histogram of Variable t_stage") +
+theme_light()
+#ggsave("Histogram of Variable t_stage.png", plot = plot1)
+plot2 <- ggplot(sur.data, aes(x = f_time)) +
+geom_histogram(fill = "dodgerblue", color = "black", bins = 100) +
+xlab("time") +
+ylab("Frequency") +
+ggtitle("Histogram of Variable f_time")
+#ggsave("Histogram of Variable f_time.png", plot = plot2)
+sum(sur.data$f_time<0)
+sum(sur.data$f_time<0)/nrow(sur.data)
+km_fit <- survfit(Surv(f_time, event) ~ 1, data = sur.data)
+KMSC <- ggsurvplot(
+km_fit,
+data = sur.data,
+conf.int = TRUE,
+ggtheme = theme_light(),
+xlim = c(0,max(sur.data$f_time)),
+surv.median.line = "hv",
+title = "Kaplan-Meier Survival Curve"
+)
+plot3 <- KMSC$plot
+#ggsave("KM Survival Curve.png", plot = plot3)
+plot3
+sum(sur.data$event)/nrow(sur.data)
+km_fit
+work_d <- na.omit(data.frame(sur.data["f_time"],sur.data["event"],
+sur.data["ulcer"]))
+km_fit <- survfit(Surv(f_time, event) ~ ulcer, work_d)
+plot.b <- ggsurvplot(km_fit,
+pval = TRUE, conf.int = TRUE,
+risk.table.col = "strata",
+linetype = "strata",
+surv.median.line = "hv",
+ggtheme = theme_bw(),
+palette = c("#E7B800", "#2E9FDF"),
+work_d)
+plot4<-plot.b$plot
+#ggsave("KM Survival Curve for 2 Groups.png", plot = plot4)
+plot4
+log.rank <- survdiff(Surv(f_time, event) ~ ulcer, work_d)
+log.rank
+work_d <- sur.data %>%
+filter(f_time > 0, !is.na(t_stage))
+cox.ph <- coxph(Surv(f_time, event) ~ thick+t_stage, work_d)
+summary(cox.ph)
+test.ph <- cox.zph(cox.ph)
+test.ph
+cox.plot <- ggcoxzph(test.ph)
+plot5 <- cox.plot$'1'
+plot6 <- cox.plot$'2'
+plot5;plot6
+#ggsave("Schoenfeld Test for Variable thick.png", plot = plot5)
+#ggsave("Schoenfeld Test for Variable t_stage.png", plot = plot6)
+par_fits <- tibble(
+dist_param = c("exp", "weibull", "gamma", "lognormal", "llogis"),
+dist_name = c("Exponential", "Weibull", "Gamma",
+"Log-normal", "Log-logistic")
+) %>%
+mutate(
+fit = map(dist_param, ~flexsurvreg(Surv(f_time, event) ~ thick+t_stage, data = work_d, dist = .x)),
+fit_smry = map(fit, ~summary(.x, type = "hazard", ci = FALSE, tidy = TRUE)),
+AIC = map_dbl(fit, ~.x$AIC)
+)
+par_fits %>% arrange(par_fits$AIC) %>% select(dist_name, AIC)
+par_fits %>% arrange(par_fits$AIC) %>% select(dist_name, AIC)
+library(tidyverse)
+library(dplyr)
+par_fits <- tibble(
+dist_param = c("exp", "weibull", "gamma", "lognormal", "llogis"),
+dist_name = c("Exponential", "Weibull", "Gamma",
+"Log-normal", "Log-logistic")
+) %>%
+mutate(
+fit = map(dist_param, ~flexsurvreg(Surv(f_time, event) ~ thick+t_stage, data = work_d, dist = .x)),
+fit_smry = map(fit, ~summary(.x, type = "hazard", ci = FALSE, tidy = TRUE)),
+AIC = map_dbl(fit, ~.x$AIC)
+)
+par_fits %>% arrange(par_fits$AIC) %>% select(dist_name, AIC)
+?select
+select
+library(MASS)
+par_fits <- tibble(
+dist_param = c("exp", "weibull", "gamma", "lognormal", "llogis"),
+dist_name = c("Exponential", "Weibull", "Gamma",
+"Log-normal", "Log-logistic")
+) %>%
+mutate(
+fit = map(dist_param, ~flexsurvreg(Surv(f_time, event) ~ thick+t_stage, data = work_d, dist = .x)),
+fit_smry = map(fit, ~summary(.x, type = "hazard", ci = FALSE, tidy = TRUE)),
+AIC = map_dbl(fit, ~.x$AIC)
+)
+par_fits <- tibble(
+dist_param = c("exp", "weibull", "gamma", "lognormal", "llogis"),
+dist_name = c("Exponential", "Weibull", "Gamma",
+"Log-normal", "Log-logistic")
+) %>%
+mutate(
+fit = map(dist_param, ~flexsurvreg(Surv(f_time, event) ~ thick+t_stage, data = work_d, dist = .x)),
+fit_smry = map(fit, ~summary(.x, type = "hazard", ci = FALSE, tidy = TRUE)),
+AIC = map_dbl(fit, ~.x$AIC)
+)
+par_fits %>% arrange(par_fits$AIC) %>% select(dist_name, AIC)
+par_fits %>% arrange(par_fits$AIC) %>% select(dist_name, AIC)
+library(tidyverse)
+library(dplyr)
+par_fits <- tibble(
+dist_param = c("exp", "weibull", "gamma", "lognormal", "llogis"),
+dist_name = c("Exponential", "Weibull", "Gamma",
+"Log-normal", "Log-logistic")
+) %>%
+mutate(
+fit = map(dist_param, ~flexsurvreg(Surv(f_time, event) ~ thick+t_stage, data = work_d, dist = .x)),
+fit_smry = map(fit, ~summary(.x, type = "hazard", ci = FALSE, tidy = TRUE)),
+AIC = map_dbl(fit, ~.x$AIC)
+)
+par_fits %>% arrange(par_fits$AIC) %>% select(dist_name, AIC)
+par_dits
+par_dits
+par_fits
+par_fits %>% arrange(par_fits$AIC) %>% select(dist_name, AIC)
+par_fits %>% arrange(par_fits$AIC) %>% select(dist_name, AIC)
+par_fits
+library(tidyverse)
+library(dplyr)
+par_fits <- tibble(
+dist_param = c("exp", "weibull", "gamma", "lognormal", "llogis"),
+dist_name = c("Exponential", "Weibull", "Gamma",
+"Log-normal", "Log-logistic")
+) %>%
+mutate(
+fit = map(dist_param, ~flexsurvreg(Surv(f_time, event) ~ thick+t_stage+ulcer, data = work_d, dist = .x)),
+fit_smry = map(fit, ~summary(.x, type = "hazard", ci = FALSE, tidy = TRUE)),
+AIC = map_dbl(fit, ~.x$AIC)
+)
+par_fits %>% arrange(par_fits$AIC) %>% select(dist_name, AIC)
+par_fits
+par_fits$fit
+par_fits$fit[1]
+# Get the Kaplan-Meier estimates
+km_fit <- survfit(Surv(f_time, event) ~ 1, data = work_d)
+# Plotting the curves
+ggplot() +
+geom_step(aes(x = time, y = surv, color = "Kaplan-Meier"), data = as.data.frame(km_fit)) +
+geom_line(data = unnest(surv_curves, surv_curve), aes(x = time, y = surv, color = dist_name)) +
+labs(color = "Model") +
+theme_minimal()
+library(broom)
+# Convert the Kaplan-Meier fit to a tidy data frame
+km_df <- tidy(km_fit)
+# Plotting the curves
+ggplot() +
+geom_step(aes(x = time, y = estimate, color = "Kaplan-Meier"), data = km_df) +
+geom_line(data = unnest(surv_curves, surv_curve), aes(x = time, y = surv, color = dist_name)) +
+labs(color = "Model") +
+theme_minimal()
+library(broom)
+# Assuming you have already loaded the required libraries
+# Get the Kaplan-Meier estimates
+km_fit <- survfit(Surv(f_time, event) ~ 1, data = work_d)
+# Extract the survival curves for each parametric model
+surv_curves <- par_fits %>%
+mutate(
+surv_curve = map(fit, ~summary(.x, newdata = work_d, type = "survival", times = km_fit$time)$surv)
+)

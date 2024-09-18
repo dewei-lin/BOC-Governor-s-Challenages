@@ -1,0 +1,81 @@
+---
+title: "Douglas_Potential_Output"
+author: "Dewei Lin"
+date: "2023-09-19"
+output: pdf_document
+---
+
+```{r}
+#setwd("Desktop/BOC") 
+library(readr)
+library(stringr)
+library(dplyr)
+library(tidyverse)
+library(readxl)
+library(tseries)
+library(openxlsx)
+#annual_data <- read_excel("Desktop/BOC/PGDP.estimation.data.xlsx", 
+    #sheet = "Annual_Data", skip = 2)
+#quar_data <- read_excel("Desktop/BOC/PGDP.estimation.data.xlsx", 
+    #sheet = "K_Y_L", skip = 1)
+
+convert_date <- function(date_str) {
+  # Check if the date_str already has the desired format
+  if (grepl("^\\d{4}-\\d{2}-\\d{2}$", date_str)) {
+    return(date_str)
+  } else if (grepl("^Q(\\d) (\\d{4})$", date_str, perl = TRUE)) {
+    # Extract quarter and year from the original date
+    quarter <- as.numeric(sub("^Q(\\d) (\\d{4})$", "\\1", date_str))
+    year <- as.numeric(sub("^Q(\\d) (\\d{4})$", "\\2", date_str))
+    
+    # Map the quarter to the corresponding month
+    month <- switch(quarter, "1" = "04", "2" = "07", "3" = "10", "4" = "01")
+    
+    # Create the new date string in YYYY-MM-DD format
+    new_date_str <- paste(year, month, "01", sep = "-")
+    
+    return(new_date_str)
+  } else if (grepl("^\\d{4}$", date_str)) {
+    # Extract year from the original date
+    year <- as.numeric(date_str)
+    
+    # Create the new date string in YYYY-MM-DD format for the case of YYYY
+    new_date_str <- paste(year + 1, "01", "01", sep = "-")
+    
+    return(new_date_str)
+  } else {
+    return(date_str)
+  }
+}
+
+
+```
+
+```{r}
+annual.data <- annual_data %>% mutate(
+  Y.P.log = log(as.numeric(GDP_P)),
+  L.log = log(as.numeric(L)),
+  K.log = log(as.numeric(K))
+)
+douglas.model <- lm(data=annual.data,
+                    Y.P.log~L.log+K.log)
+
+coef <- coef(douglas.model)
+
+quar.data <- quar_data %>% mutate(
+  L.log = log(as.numeric(quar_data$L)),
+  K.log = log(as.numeric(quar_data$K)),
+  Y.P.log = coef[1] + coef[2]*L.log + coef[3]*K.log,
+  PGDP = exp(Y.P.log),
+   ) %>% select(-L.log, -K.log, -Y.P.log,-L,-K) %>% 
+   setNames(c("date", "rgdp", "pgdp")) %>% 
+  mutate (date = sapply(date, convert_date))
+
+```
+
+```{r}
+quar.data
+file_name <- "rgdp.pgdp.xlsx"
+#write.xlsx(quar.data, file_name)
+```
+
